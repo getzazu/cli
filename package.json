@@ -1,0 +1,46 @@
+{
+  "name": "@getzazu/cli",
+  "version": "0.1.0",
+  "description": "Command-line interface for the Zazu API.",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/getzazu/cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getzazu/cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/getzazu/cli/issues"
+  },
+  "keywords": [
+    "zazu",
+    "cli",
+    "api",
+    "invoices",
+    "payments"
+  ],
+  "bin": {
+    "zazu": "./bin/zazu.js"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CONTRIBUTING.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "packageManager": "bun@1.3.11",
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "scripts": {
+    "start": "bun ./bin/zazu.js",
+    "check": "bun build --target=bun --outfile=dist/.check/zazu-cli-check ./bin/zazu.js",
+    "compile": "bun build --compile --outfile=dist/zazu ./bin/zazu.js",
+    "build": "scripts/build",
+    "test": "bun test"
+  }
+}

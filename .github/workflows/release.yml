@@ -1,0 +1,266 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write       # create releases and upload assets
+  id-token: write       # npm provenance
+
+concurrency:
+  group: cli-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ".bun-version"
+
+      - name: Verify tag matches package.json version
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          pkg="$(bun -e 'console.log(require("./package.json").version)')"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::Tag v$tag does not match package.json version $pkg"
+            exit 1
+          fi
+
+      - name: Tests
+        run: bun test
+
+      - name: Smoke-test compiled binary (host platform)
+        # bun test only exercises the source; this catches `bun build
+        # --compile` regressions before we publish broken installs to
+        # GitHub Releases / npm / Homebrew.
+        run: |
+          set -euo pipefail
+          bun run compile
+          ./dist/zazu --version
+          ./dist/zazu --help > /dev/null
+
+      - name: Smoke test against Zazu staging
+        # Run the host binary against the staging API with a known
+        # read-only key. If the CLI's request/response contract has
+        # drifted from the live API, this fails before any artifact
+        # is published.
+        env:
+          ZAZU_STAGING_URL: ${{ secrets.ZAZU_STAGING_URL }}
+          ZAZU_STAGING_API_KEY: ${{ secrets.ZAZU_STAGING_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ZAZU_STAGING_URL" ] || [ -z "$ZAZU_STAGING_API_KEY" ]; then
+            echo "::error::ZAZU_STAGING_URL and ZAZU_STAGING_API_KEY required for release"
+            exit 1
+          fi
+          ./dist/zazu \
+            --base-url "$ZAZU_STAGING_URL" \
+            --api-key "$ZAZU_STAGING_API_KEY" \
+            --pretty \
+            entity get | tee staging-entity.json
+          jq -e '.id and .name' staging-entity.json > /dev/null || {
+            echo "::error::Unexpected response shape from /api/entity"
+            cat staging-entity.json
+            exit 1
+          }
+          echo "Staging smoke test PASS"
+
+      - name: Cross-compile binaries
+        run: bun run build
+
+      - name: Upload binaries (workflow artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: zazu-cli-binaries
+          path: |
+            dist/zazu-*
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+  github_release:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: zazu-cli-binaries
+          path: dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/zazu-*
+            dist/SHA256SUMS
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+  npm_publish:
+    name: Publish to npm
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ".bun-version"
+
+      - name: Set up Node (for npm publish)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: zazu-cli-binaries
+          path: dist
+
+      - name: Publish per-platform packages and the parent package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: scripts/npm-publish
+
+  homebrew_bump:
+    name: Bump Homebrew formula
+    needs: github_release
+    runs-on: ubuntu-latest
+    # Gated on the PUBLISH_HOMEBREW repo variable so we can soak-test
+    # releases against a private getzazu/cli without writing a broken
+    # Homebrew formula (the formula's URLs would 404 to anyone fetching
+    # them while the repo is private). Flip to "true" via:
+    #   gh variable set PUBLISH_HOMEBREW --repo getzazu/cli --body "true"
+    # at the same moment getzazu/cli is made public.
+    if: ${{ vars.PUBLISH_HOMEBREW == 'true' }}
+
+    steps:
+      - name: Bump formula
+        env:
+          # Fine-grained PAT scoped to getzazu/homebrew-tap with
+          # Contents: Read and write. Set via:
+          #   gh secret set HOMEBREW_TAP_TOKEN --repo getzazu/cli
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${VERSION#v}"
+
+          # Pull the SHA256SUMS file we just released.
+          gh release download "v$version" \
+            --repo getzazu/cli \
+            --pattern SHA256SUMS \
+            --output SHA256SUMS
+
+          sha_darwin_arm64="$(awk '/zazu-darwin-arm64$/ {print $1}' SHA256SUMS)"
+          sha_darwin_x64="$(awk '/zazu-darwin-x64$/ {print $1}' SHA256SUMS)"
+          sha_linux_arm64="$(awk '/zazu-linux-arm64$/ {print $1}' SHA256SUMS)"
+          sha_linux_x64="$(awk '/zazu-linux-x64$/ {print $1}' SHA256SUMS)"
+
+          # Fail loud if any expected checksum is missing, instead of
+          # silently writing a broken Homebrew formula with empty
+          # sha256 fields.
+          for pair in \
+            "darwin-arm64:${sha_darwin_arm64}" \
+            "darwin-x64:${sha_darwin_x64}" \
+            "linux-arm64:${sha_linux_arm64}" \
+            "linux-x64:${sha_linux_x64}"
+          do
+            target="${pair%%:*}"
+            sha="${pair#*:}"
+            if [ -z "$sha" ]; then
+              echo "::error::Missing SHA256 for ${target} in SHA256SUMS — refusing to write broken Homebrew formula"
+              exit 1
+            fi
+          done
+
+          # Clone, write formula, push.
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/getzazu/homebrew-tap.git" tap
+          cd tap
+
+          mkdir -p Formula
+          cat > Formula/zazu.rb <<RUBY
+          # typed: false
+          # frozen_string_literal: true
+
+          class Zazu < Formula
+            desc "Command-line interface for the Zazu API"
+            homepage "https://github.com/getzazu/cli"
+            version "${version}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/getzazu/cli/releases/download/v#{version}/zazu-darwin-arm64"
+                sha256 "${sha_darwin_arm64}"
+              end
+              on_intel do
+                url "https://github.com/getzazu/cli/releases/download/v#{version}/zazu-darwin-x64"
+                sha256 "${sha_darwin_x64}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/getzazu/cli/releases/download/v#{version}/zazu-linux-arm64"
+                sha256 "${sha_linux_arm64}"
+              end
+              on_intel do
+                url "https://github.com/getzazu/cli/releases/download/v#{version}/zazu-linux-x64"
+                sha256 "${sha_linux_x64}"
+              end
+            end
+
+            def install
+              binary = case
+                       when OS.mac? && Hardware::CPU.arm? then "zazu-darwin-arm64"
+                       when OS.mac? && Hardware::CPU.intel? then "zazu-darwin-x64"
+                       when OS.linux? && Hardware::CPU.arm? then "zazu-linux-arm64"
+                       when OS.linux? && Hardware::CPU.intel? then "zazu-linux-x64"
+                       end
+              bin.install binary => "zazu"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/zazu --version")
+            end
+          end
+          RUBY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/zazu.rb
+
+          # Make the tap update idempotent: if the formula is already
+          # exactly what we'd write (e.g. job re-run after a transient
+          # failure later in the pipeline), exit cleanly instead of
+          # failing on `git commit` with "nothing to commit".
+          if git diff --cached --quiet; then
+            echo "Formula already up to date for ${version}"
+            exit 0
+          fi
+
+          git commit -m "zazu ${version}"
+          git push

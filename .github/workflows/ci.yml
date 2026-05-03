@@ -1,0 +1,89 @@
+name: CLI CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: cli-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ".bun-version"
+
+      - name: Type and bundle check
+        run: bun run check
+
+      - name: Test
+        run: bun test
+
+      - name: Compile standalone binary
+        run: bun run compile
+
+      - name: Smoke test binary (host)
+        run: ./dist/zazu --version
+
+      # Hits the Zazu staging API with a known read-only key. Catches
+      # CLI ↔ API contract drift loudly: if a controller changes a
+      # response shape or removes a field the CLI relies on, this step
+      # fails before a release ships. Skipped in forks (no secrets).
+      - name: Smoke test against Zazu staging
+        if: ${{ env.ZAZU_STAGING_URL != '' && env.ZAZU_STAGING_API_KEY != '' }}
+        env:
+          ZAZU_STAGING_URL: ${{ secrets.ZAZU_STAGING_URL }}
+          ZAZU_STAGING_API_KEY: ${{ secrets.ZAZU_STAGING_API_KEY }}
+        run: |
+          set -euo pipefail
+          ./dist/zazu \
+            --base-url "$ZAZU_STAGING_URL" \
+            --api-key "$ZAZU_STAGING_API_KEY" \
+            --pretty \
+            entity get | tee staging-entity.json
+
+          # Sanity-check the response shape: expect a top-level `id`
+          # and `name`. If either is missing, fail.
+          jq -e '.id and .name' staging-entity.json > /dev/null || {
+            echo "::error::Unexpected response shape from /api/entity"
+            cat staging-entity.json
+            exit 1
+          }
+          echo "Staging smoke test PASS"
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ".bun-version"
+
+      - name: Cross-compile binaries for all targets
+        run: bun run build
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: zazu-cli-binaries
+          path: |
+            dist/zazu-*
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
