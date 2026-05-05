@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const root = path.resolve(import.meta.dirname, "..");
-const cli = path.join(root, "bin", "zazu.js");
+const cli = path.join(root, "bin", "zazu.ts");
 const runtime = process.env.ZAZU_CLI_RUNTIME || "bun";
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const cliVersion = packageJson.version;

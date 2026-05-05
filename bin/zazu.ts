@@ -197,7 +197,9 @@ Usage:
 };
 
 class CliError extends Error {
-  constructor(message, exitCode = 1) {
+  exitCode: number;
+
+  constructor(message: string, exitCode = 1) {
     super(message);
     this.name = "CliError";
     this.exitCode = exitCode;
@@ -255,9 +257,9 @@ function helpFor(positionals) {
 }
 
 function parseArgs(argv) {
-  const globals = {};
-  const flags = {};
-  const positionals = [];
+  const globals: Record<string, unknown> = {};
+  const flags: Record<string, unknown> = {};
+  const positionals: string[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
@@ -599,8 +601,8 @@ function webhookEndpointBody(flags) {
   return body;
 }
 
-function pick(flags, names) {
-  const out = {};
+function pick(flags, names): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
   for (const name of names) {
     if (flags[name] !== undefined) {
       out[snake(name)] = coerceValue(flags[name]);
@@ -611,7 +613,7 @@ function pick(flags, names) {
 
 function queryPairs(value) {
   const values = arrayify(value);
-  const query = {};
+  const query: Record<string, string> = {};
   for (const item of values) {
     if (item === undefined) continue;
     const text = String(item);
@@ -667,9 +669,9 @@ async function send(config, request) {
 }
 
 async function sendPaginated(config, request) {
-  const data = [];
+  const data: unknown[] = [];
   let cursor = request.query?.cursor;
-  let lastPayload = null;
+  let lastPayload: { has_more?: boolean; next_cursor?: string | null } | null = null;
 
   while (true) {
     const query = { ...(request.query || {}) };
@@ -719,12 +721,12 @@ async function sendPaginated(config, request) {
 
 async function fetchRequest(config, request) {
   const url = buildURL(config.baseURL, request.path, request.query);
-  const headers = {
+  const headers: Record<string, string> = {
     Authorization: `Bearer ${config.apiKey}`,
     Accept: "application/json",
   };
 
-  const init = { method: request.method, headers };
+  const init: RequestInit = { method: request.method, headers };
   const controller = new AbortController();
   const timeout = setTimeout(() => {
     controller.abort(new Error("Request timed out"));
@@ -871,7 +873,7 @@ function coerceValue(value) {
   return value;
 }
 
-async function readStdin({ requirePipe = false } = {}) {
+async function readStdin({ requirePipe = false } = {}): Promise<string> {
   if (process.stdin.isTTY) {
     if (requirePipe) {
       throw new CliError("No stdin input detected. Pipe the API key into `zazu login --api-key-stdin`.");
@@ -882,7 +884,7 @@ async function readStdin({ requirePipe = false } = {}) {
 
   process.stdin.setEncoding("utf8");
 
-  return new Promise((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     let data = "";
 
     process.stdin.on("data", (chunk) => {
