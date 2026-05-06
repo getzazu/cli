@@ -50,6 +50,7 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "check:all": "bun run typecheck && bun run lint && bun test",
+    "release": "bun scripts/release.ts",
     "test": "bun test"
   },
   "devDependencies": {
