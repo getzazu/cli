@@ -75,6 +75,21 @@ if (!requested) {
   process.exit(1);
 }
 
+// Strict-ish semver: X.Y.Z with optional -alpha.N / -beta.N / -rc.N / -pre.N.
+// We don't need full semver coverage — we control the inputs and only ship
+// clean numeric versions. The regex is permissive enough for pre-release
+// suffixes but rejects anything that would silently corrupt package.json.
+const SEMVER_RE = /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc|pre)(?:\.\d+)?)?$/;
+
+if (requested !== "pre" && !SEMVER_RE.test(requested)) {
+  console.error(
+    C.red(
+      `Invalid version "${requested}". Expected X.Y.Z (optionally suffixed with -alpha.N / -beta.N / -rc.N / -pre.N), or the literal "pre".`,
+    ),
+  );
+  process.exit(1);
+}
+
 const pkg = JSON.parse(readFileSync(PKG_PATH, "utf8")) as { version: string };
 const current = pkg.version;
 let prerelease = /alpha|beta|rc|pre/.test(requested) || requested === "pre";
@@ -105,6 +120,20 @@ if (force) {
     success(`Deleted release and remote tag ${tag}`);
   } else {
     skip(`No release ${tag} to delete`);
+  }
+  // Even when no release existed, a stray remote tag may still be
+  // there (e.g. from a previous half-finished release attempt).
+  // gh release delete --cleanup-tag only runs when the release object
+  // existed, so we have to handle the orphaned-tag case ourselves —
+  // otherwise gh release create --target main below fails with
+  // "tag already exists" and the user can't recover without manual
+  // git push --delete.
+  const remoteTagRef = `refs/tags/${tag}`;
+  if (shTry("git", ["ls-remote", "--exit-code", "origin", remoteTagRef]).ok) {
+    sh("git", ["push", "origin", "--delete", tag]);
+    success(`Deleted remote tag ${tag}`);
+  } else {
+    skip(`No remote tag ${tag} to delete`);
   }
   if (shTry("git", ["rev-parse", tag]).ok) {
     sh("git", ["tag", "-d", tag]);
@@ -142,6 +171,19 @@ if (diff.includes("package.json")) {
 }
 
 header("Git push");
+// Refuse to push from anywhere other than main — the workflow's
+// release.yml triggers on pushes to main and tags off main, so a
+// release driven from a feature branch would land tags pointing at
+// the wrong commit.
+const branch = sh("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
+if (branch !== "main") {
+  console.error(C.red(`Aborting: must release from main, currently on ${branch}.`));
+  process.exit(1);
+}
+// Refresh origin/main so the local-vs-remote comparison below is
+// meaningful — without this fetch, an out-of-date tracking ref will
+// either skip a needed push or trigger a redundant one.
+sh("git", ["fetch", "origin", "main"]);
 const local = sh("git", ["rev-parse", "HEAD"]);
 const remote = shTry("git", ["rev-parse", "origin/main"]).stdout;
 if (local === remote) {
@@ -156,13 +198,18 @@ const tagExists = shTry("git", ["rev-parse", tag]).ok;
 const releaseExists = shTry("gh", ["release", "view", tag]).ok;
 if (releaseExists) {
   skip(`Release ${tag} already exists (use --force to re-create)`);
-} else {
-  const flags = ["release", "create", tag, "--generate-notes"];
-  if (!tagExists) flags.push("--target", "main");
-  if (prerelease) flags.push("--prerelease");
-  sh("gh", flags);
-  success(`Release ${tag} created`);
+  console.log("");
+  console.log(
+    `Release ${tag} was not dispatched. To re-cut, run with --force or pick a higher version.`,
+  );
+  process.exit(0);
 }
+
+const flags = ["release", "create", tag, "--generate-notes"];
+if (!tagExists) flags.push("--target", "main");
+if (prerelease) flags.push("--prerelease");
+sh("gh", flags);
+success(`Release ${tag} created`);
 
 console.log("");
 success(`\x1b[1mRelease ${tag} dispatched.\x1b[0m CI will:`);
