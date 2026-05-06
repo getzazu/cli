@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { type RequestOptions, Zazu, ZazuError } from "@getzazu/sdk";
+import { Page, type PageBody, type RequestOptions, Zazu, ZazuError } from "@getzazu/sdk";
 
 const CLI_VERSION = "0.1.0";
 const DEFAULT_BASE_URL = "https://zazu.ma";
@@ -734,57 +734,73 @@ async function send(config, request) {
 }
 
 async function sendPaginated(config, request) {
+  // Per-page size: caller's --limit if given, otherwise the SDK page cap.
+  const requestedLimit = parseOptionalPositiveInteger(request.query?.limit, "limit");
+  const pageLimit = requestedLimit ?? request.pageLimit ?? LIST_PAGE_SIZE;
+
+  // The fetcher closure adapts each page's limit to what's still
+  // needed. When --max-items is set, the last page's request shrinks
+  // so the API doesn't return more rows than we'll keep.
+  const baseQuery = { ...(request.query || {}), limit: pageLimit };
+  delete baseQuery.cursor;
+  const initialCursor = request.query?.cursor ?? null;
   const data: unknown[] = [];
-  let cursor = request.query?.cursor;
-  let lastPayload: { has_more?: boolean; next_cursor?: string | null } | null = null;
 
-  while (true) {
-    const query = { ...(request.query || {}) };
-    if (cursor) {
-      query.cursor = cursor;
+  const fetchPage = async (cursor: string | null): Promise<Page<unknown>> => {
+    const query: Record<string, unknown> = { ...baseQuery };
+    if (cursor) query.cursor = cursor;
+    if (request.maxItems !== undefined) {
+      const remaining = request.maxItems - data.length;
+      query.limit = Math.min(pageLimit, Math.max(remaining, 1), LIST_PAGE_SIZE);
     }
+    const response = await fetchRequest(config, { ...request, query });
+    return new Page<unknown>(response as never, fetchPage);
+  };
 
-    const remaining = request.maxItems === undefined ? undefined : request.maxItems - data.length;
-    if (remaining !== undefined && remaining <= 0) {
+  let firstPage: Page<unknown>;
+  try {
+    firstPage = await fetchPage(initialCursor);
+  } catch (error) {
+    handleSendError(error, config);
+    return;
+  }
+
+  // Walk pages with the SDK's chained `next()`, capping at maxItems.
+  // We track the most recent page so the printed envelope can keep
+  // any extra fields the API returned alongside data/has_more/next_cursor.
+  let lastPage: Page<unknown> = firstPage;
+  let truncated = false;
+
+  let page: Page<unknown> | null = firstPage;
+  while (page !== null) {
+    lastPage = page;
+    for (const item of page.data) {
+      if (request.maxItems !== undefined && data.length >= request.maxItems) break;
+      data.push(item);
+    }
+    if (request.maxItems !== undefined && data.length >= request.maxItems) {
+      // Cap reached on this page — stop without fetching the next.
+      truncated = page.hasMore;
       break;
     }
-
-    if (remaining !== undefined) {
-      const currentLimit =
-        parseOptionalPositiveInteger(query.limit, "limit") || request.pageLimit || LIST_PAGE_SIZE;
-      query.limit = Math.min(currentLimit, remaining, LIST_PAGE_SIZE);
-    }
-
-    let parsed: unknown;
     try {
-      parsed = (await fetchRequest(config, { ...request, query })).body;
+      page = await page.next();
     } catch (error) {
       handleSendError(error, config);
       return;
     }
-
-    if (!isObject(parsed) || !Array.isArray(parsed.data)) {
-      printOutput(parsed, config);
-      return;
-    }
-
-    lastPayload = parsed as { has_more?: boolean; next_cursor?: string | null };
-    data.push(...(parsed.data as unknown[]));
-
-    if (!parsed.has_more || !parsed.next_cursor) {
-      break;
-    }
-
-    cursor = parsed.next_cursor as string;
   }
 
+  // Output envelope mirrors the previous shape: spread the last page's
+  // raw body so any extra API fields survive, then override data,
+  // has_more, and next_cursor to reflect aggregated state.
+  const lastBody = (lastPage.response.body ?? {}) as PageBody<unknown> & Record<string, unknown>;
   printOutput(
     {
-      ...(lastPayload || {}),
+      ...lastBody,
       data,
-      has_more: Boolean(lastPayload?.has_more && data.length === request.maxItems),
-      next_cursor:
-        lastPayload?.has_more && data.length === request.maxItems ? lastPayload.next_cursor : null,
+      has_more: truncated,
+      next_cursor: truncated ? lastPage.nextCursor : null,
     },
     config,
   );
