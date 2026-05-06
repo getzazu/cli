@@ -27,6 +27,12 @@ jobs:
         with:
           bun-version-file: ".bun-version"
 
+      - name: Install dependencies
+        # Required so bun build / bun test can resolve @getzazu/sdk
+        # (a runtime dep, not a stdlib module). Same omission we hit
+        # on the zazu-ts release workflow.
+        run: bun install --frozen-lockfile
+
       - name: Verify tag matches package.json version
         run: |
           tag="${GITHUB_REF#refs/tags/v}"
