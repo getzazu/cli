@@ -811,7 +811,13 @@ function printOutput(value, config) {
 function printError(error: ZazuError, format) {
   const body = error.body;
   if (format === "raw") {
-    console.error(typeof body === "string" ? body : JSON.stringify(body ?? error.message));
+    if (typeof body === "string") {
+      console.error(body);
+    } else if (body == null && typeof error.message === "string") {
+      console.error(error.message);
+    } else {
+      console.error(JSON.stringify(body ?? error.message));
+    }
     return;
   }
 
