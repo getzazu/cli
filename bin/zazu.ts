@@ -659,14 +659,12 @@ async function send(config, request) {
     return;
   }
 
-  const { response, parsed } = await fetchRequest(config, request);
-  if (!response.ok) {
-    printError(response, parsed, config.output);
-    process.exitCode = 1;
-    return;
+  try {
+    const sdkResponse = await fetchRequest(config, request);
+    printOutput(sdkResponse.body, config);
+  } catch (error) {
+    handleSendError(error, config);
   }
-
-  printOutput(parsed, config);
 }
 
 async function sendPaginated(config, request) {
@@ -690,10 +688,11 @@ async function sendPaginated(config, request) {
       query.limit = Math.min(currentLimit, remaining, LIST_PAGE_SIZE);
     }
 
-    const { response, parsed } = await fetchRequest(config, { ...request, query });
-    if (!response.ok) {
-      printError(response, parsed, config.output);
-      process.exitCode = 1;
+    let parsed: unknown;
+    try {
+      parsed = (await fetchRequest(config, { ...request, query })).body;
+    } catch (error) {
+      handleSendError(error, config);
       return;
     }
 
@@ -702,14 +701,14 @@ async function sendPaginated(config, request) {
       return;
     }
 
-    lastPayload = parsed;
-    data.push(...parsed.data);
+    lastPayload = parsed as { has_more?: boolean; next_cursor?: string | null };
+    data.push(...(parsed.data as unknown[]));
 
     if (!parsed.has_more || !parsed.next_cursor) {
       break;
     }
 
-    cursor = parsed.next_cursor;
+    cursor = parsed.next_cursor as string;
   }
 
   printOutput({
@@ -720,21 +719,28 @@ async function sendPaginated(config, request) {
   }, config);
 }
 
-// HTTP transport via @getzazu/sdk. The SDK's `client.request()` handles
-// auth headers, JSON serialization, AbortController-based timeouts, and
-// the 9-class error hierarchy. We translate its outputs back into the
-// `{ response, parsed }` shape that send/sendPaginated/printError expect
-// — PR #3 will swap printError to consume ZazuError directly and drop
-// this synthetic Response.
-//
-// We cache one client per (apiKey, baseURL, apiVersion, timeout) tuple
-// to avoid rebuilding the underlying fetch wrapper on every paginated
-// page fetch.
-type FetchResult = {
-  response: { ok: boolean; status: number; headers: Headers };
-  parsed: unknown;
-};
+// Handle errors from any fetchRequest call uniformly: SDK errors with
+// a status code go through printError; connection/configuration errors
+// surface as CliError; unknown errors rethrow so we can see the stack.
+function handleSendError(error: unknown, config): void {
+  if (error instanceof ZazuError && error.status !== undefined) {
+    printError(error, config.output);
+    process.exitCode = 1;
+    return;
+  }
+  if (error instanceof ZazuError) {
+    throw new CliError(error.message);
+  }
+  throw error;
+}
 
+// HTTP transport via @getzazu/sdk. The SDK handles auth headers, JSON
+// serialization, AbortController-based timeouts, and the 9-class error
+// hierarchy — we just thread arguments through and let it throw on
+// non-2xx, which our send/sendPaginated catch.
+//
+// One Zazu client cached per (apiKey, baseURL, apiVersion, timeout)
+// tuple so paginated calls don't re-instantiate.
 let cachedClient: Zazu | null = null;
 let cachedClientKey: string | null = null;
 
@@ -756,7 +762,7 @@ function normalizePath(value: string): string {
   return `/api${value.startsWith("/") ? value : `/${value}`}`;
 }
 
-async function fetchRequest(config, request): Promise<FetchResult> {
+async function fetchRequest(config, request) {
   const path = normalizePath(request.path);
   const resolvedBody = request.body instanceof Promise ? await request.body : request.body;
   const hasBody = resolvedBody && typeof resolvedBody === "object" && Object.keys(resolvedBody).length > 0;
@@ -769,30 +775,7 @@ async function fetchRequest(config, request): Promise<FetchResult> {
   const opts: RequestOptions = { params: request.query };
   if (hasBody) opts.body = resolvedBody;
 
-  const client = clientFor(config);
-
-  try {
-    const sdkResponse = await client.request(request.method, path, opts);
-    return {
-      response: { ok: true, status: sdkResponse.status, headers: sdkResponse.headers },
-      parsed: sdkResponse.body,
-    };
-  } catch (error) {
-    if (error instanceof ZazuError && error.status !== undefined) {
-      // Map SDK errors back to the response/parsed shape printError expects.
-      // The SDK preserves the response's Headers object on ZazuError, so
-      // printError can still pluck out x-request-id and zazu-version.
-      const headers = error.headers ?? new Headers();
-      return {
-        response: { ok: false, status: error.status, headers },
-        parsed: error.body ?? { error: { message: error.message, type: error.type, param: error.param } },
-      };
-    }
-    if (error instanceof ZazuError) {
-      throw new CliError(error.message);
-    }
-    throw error;
-  }
+  return clientFor(config).request(request.method, path, opts);
 }
 
 function buildURL(baseURL, path, query = {}) {
@@ -825,17 +808,19 @@ function printOutput(value, config) {
   console.log(JSON.stringify(value, null, config.output === "pretty" ? 2 : 0));
 }
 
-function printError(response, value, format) {
+function printError(error: ZazuError, format) {
+  const body = error.body;
   if (format === "raw") {
-    console.error(typeof value === "string" ? value : JSON.stringify(value));
+    console.error(typeof body === "string" ? body : JSON.stringify(body ?? error.message));
     return;
   }
 
-  const payload = isObject(value) ? value : { error: { message: String(value || response.statusText) } };
-  payload.status = response.status;
-  const requestId = response.headers.get("x-request-id");
-  if (requestId) payload.request_id = requestId;
-  const zazuVersion = response.headers.get("zazu-version");
+  const payload: Record<string, unknown> = isObject(body)
+    ? { ...body }
+    : { error: { message: error.message, type: error.type, param: error.param } };
+  payload.status = error.status;
+  if (error.requestId) payload.request_id = error.requestId;
+  const zazuVersion = error.headers?.get("zazu-version");
   if (zazuVersion) payload.zazu_version = zazuVersion;
   console.error(JSON.stringify(payload, null, format === "pretty" ? 2 : 0));
 }
