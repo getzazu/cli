@@ -113,6 +113,21 @@ info(`Current version: ${current}`);
 info(`New version:     ${newVersion}`);
 info(`Pre-release:     ${prerelease}`);
 
+// Bail out before any repo mutation if the release already exists
+// and we're not in --force mode. Without this guard, a re-run on an
+// already-shipped version would still rewrite package.json, run
+// check:all, commit the version bump, and push origin/main — ending
+// in a noise commit on main with no release dispatched.
+if (!force && shTry("gh", ["release", "view", tag]).ok) {
+  header("Release");
+  skip(`Release ${tag} already exists (use --force to re-create)`);
+  console.log("");
+  console.log(
+    `Release ${tag} was not dispatched. To re-cut, run with --force or pick a higher version.`,
+  );
+  process.exit(0);
+}
+
 if (force) {
   header("Force cleanup");
   if (shTry("gh", ["release", "view", tag]).ok) {
@@ -195,15 +210,6 @@ if (local === remote) {
 
 header("Release");
 const tagExists = shTry("git", ["rev-parse", tag]).ok;
-const releaseExists = shTry("gh", ["release", "view", tag]).ok;
-if (releaseExists) {
-  skip(`Release ${tag} already exists (use --force to re-create)`);
-  console.log("");
-  console.log(
-    `Release ${tag} was not dispatched. To re-cut, run with --force or pick a higher version.`,
-  );
-  process.exit(0);
-}
 
 const flags = ["release", "create", tag, "--generate-notes"];
 if (!tagExists) flags.push("--target", "main");
