@@ -14,9 +14,15 @@
 #
 # This is the same pattern used by esbuild, swc, biome, turbo, etc.
 #
-# Required env: NODE_AUTH_TOKEN, VERSION (e.g. v0.2.0).
+# Required env: VERSION (e.g. v0.2.0).
 # Required input files in dist/: zazu-darwin-arm64, zazu-darwin-x64,
 # zazu-linux-arm64, zazu-linux-x64.
+#
+# Auth: each of the five published packages needs an npm trusted-
+# publisher binding pointing at this repo's release.yml workflow in
+# the `release` GitHub environment. No NPM_TOKEN required — the
+# workflow's id-token: write permission is what npm exchanges for a
+# short-lived publish credential. See CLAUDE.md for the bookkeeping.
 #
 # Requires bash 4.0+ (for `declare -A`). GitHub Actions runners ship
 # bash 5; on macOS, the system bash is 3.2 and you'll need
@@ -70,7 +76,11 @@ for arch in "${!PLATFORMS[@]}"; do
   "os": ["${os}"],
   "cpu": ["${cpu}"],
   "files": ["bin"],
-  "publishConfig": { "access": "public" }
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  }
 }
 JSON
 
@@ -83,7 +93,11 @@ This package only contains the prebuilt binary. You almost certainly want to ins
 MD
 
   echo "==> publishing @getzazu/cli-${arch}@${VERSION}"
-  (cd "${pkg_dir}" && npm publish --provenance --access public)
+  # npx --yes pulls a fresh, OIDC-capable npm (>= 11.5.1). The
+  # bundled npm with Node 22's setup-node action is too old; updating
+  # it in place via `npm install -g npm@latest` is unreliable when
+  # npm is the active process.
+  (cd "${pkg_dir}" && npx --yes npm@latest publish)
 done
 
 # 2. Build the parent package.
@@ -111,7 +125,11 @@ cat > "${parent_dir}/package.json" <<JSON
     "@getzazu/cli-linux-arm64": "${VERSION}",
     "@getzazu/cli-linux-x64": "${VERSION}"
   },
-  "publishConfig": { "access": "public" }
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  }
 }
 JSON
 
@@ -161,6 +179,6 @@ chmod +x "${parent_dir}/bin/zazu.js"
 cp README.md "${parent_dir}/README.md"
 
 echo "==> publishing @getzazu/cli@${VERSION}"
-(cd "${parent_dir}" && npm publish --provenance --access public)
+(cd "${parent_dir}" && npx --yes npm@latest publish)
 
 echo "==> npm publish complete"

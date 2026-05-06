@@ -39,7 +39,7 @@ Global flags: `--api-key`, `--api-key-stdin`, `--base-url`, `--api-version`, `--
 
 - **Use the SDK.** Don't hand-roll `fetch` calls. Don't parse `error.message` for status codes — use `instanceof ZazuValidationError` etc.
 - **`bun run check:all` before every commit.** Runs typecheck + lint + test. CI runs the same commands.
-- **No long-lived `NPM_TOKEN`.** Releases publish via npm OIDC trusted publishing through the `release` GitHub environment.
+- **No long-lived `NPM_TOKEN`.** Releases publish via npm OIDC trusted publishing through the `release` GitHub environment. Each of the **five** published packages — `@getzazu/cli`, `@getzazu/cli-darwin-arm64`, `@getzazu/cli-darwin-x64`, `@getzazu/cli-linux-arm64`, `@getzazu/cli-linux-x64` — has its own trusted-publisher binding at `https://www.npmjs.com/package/<name>/access`. All five point at this repo's `release.yml` workflow + `release` environment. Adding a new platform target means adding a fifth, sixth, etc. binding before its first publish.
 - **Per-platform packages, not a JS shim.** The published `@getzazu/cli` is a resolver that delegates to `@getzazu/cli-darwin-arm64` / `cli-darwin-x64` / `cli-linux-arm64` / `cli-linux-x64`. Same pattern as esbuild, swc, biome, turbo. Don't bundle the binary into the parent package.
 - **Backwards-compatible config layout.** `~/.config/zazu/config.json` is read by every CLI version. Don't change the schema without a migration path.
 - **Never escape backticks in PR bodies.** With `<<'EOF'` (single-quoted heredoc) the shell passes everything through verbatim. Typing `` \` `` produces literal `` \` `` in the rendered PR. See "PR descriptions" below.
