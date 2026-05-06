@@ -1,10 +1,10 @@
+import { test } from "bun:test";
 import assert from "node:assert/strict";
+import { execFile, spawn } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -18,7 +18,11 @@ test("login stores a masked API key and config commands can read and remove it",
   const configHome = await tempConfigHome();
 
   try {
-    const login = await runCliWithInput(["login", "--api-key-stdin", "--base-url", "https://api.example.test", "--pretty"], "sk_live_abcdefghijklmnopqrstuvwxyz1234567890\n", { configHome });
+    const login = await runCliWithInput(
+      ["login", "--api-key-stdin", "--base-url", "https://api.example.test", "--pretty"],
+      "sk_live_abcdefghijklmnopqrstuvwxyz1234567890\n",
+      { configHome },
+    );
     assert.deepEqual(JSON.parse(login.stdout), {
       ok: true,
       api_key: "sk_live_...7890",
@@ -40,7 +44,9 @@ test("login stores a masked API key and config commands can read and remove it",
     const unset = await runCli(["logout", "--pretty"], { configHome });
     assert.deepEqual(JSON.parse(unset.stdout), { ok: true });
 
-    const afterLogout = JSON.parse(await readFile(path.join(configHome, "zazu", "config.json"), "utf8"));
+    const afterLogout = JSON.parse(
+      await readFile(path.join(configHome, "zazu", "config.json"), "utf8"),
+    );
     assert.equal(afterLogout.api_key, undefined);
   } finally {
     await rm(configHome, { recursive: true, force: true });
@@ -51,7 +57,10 @@ test("login still accepts --api-key for backwards compatibility", async () => {
   const configHome = await tempConfigHome();
 
   try {
-    const login = await runCli(["login", "--api-key", "sk_live_abcdefghijklmnopqrstuvwxyz1234567890", "--pretty"], { configHome });
+    const login = await runCli(
+      ["login", "--api-key", "sk_live_abcdefghijklmnopqrstuvwxyz1234567890", "--pretty"],
+      { configHome },
+    );
     assert.deepEqual(JSON.parse(login.stdout), {
       ok: true,
       api_key: "sk_live_...7890",
@@ -102,7 +111,7 @@ test("recovery commands tolerate a corrupt stored config", async () => {
     const login = await runCliWithInput(
       ["login", "--api-key-stdin", "--base-url", "https://api.example.test", "--pretty"],
       "sk_live_abcdefghijklmnopqrstuvwxyz1234567890\n",
-      { configHome }
+      { configHome },
     );
     assert.deepEqual(JSON.parse(login.stdout), {
       ok: true,
@@ -134,7 +143,10 @@ test("login accepts test API keys", async () => {
   const configHome = await tempConfigHome();
 
   try {
-    const login = await runCli(["login", "--api-key", "sk_test_abcdefghijklmnopqrstuvwxyz1234567890", "--pretty"], { configHome });
+    const login = await runCli(
+      ["login", "--api-key", "sk_test_abcdefghijklmnopqrstuvwxyz1234567890", "--pretty"],
+      { configHome },
+    );
     assert.deepEqual(JSON.parse(login.stdout), {
       ok: true,
       api_key: "sk_test_...7890",
@@ -161,10 +173,14 @@ test("config set supports api-base and api-version", async () => {
   const configHome = await tempConfigHome();
 
   try {
-    const base = await runCli(["config", "set", "api-base", "https://api.zazu.test", "--pretty"], { configHome });
+    const base = await runCli(["config", "set", "api-base", "https://api.zazu.test", "--pretty"], {
+      configHome,
+    });
     assert.deepEqual(JSON.parse(base.stdout), { ok: true, api_base: "https://api.zazu.test" });
 
-    const version = await runCli(["config", "set", "api-version", "2026-04-29", "--pretty"], { configHome });
+    const version = await runCli(["config", "set", "api-version", "2026-04-29", "--pretty"], {
+      configHome,
+    });
     assert.deepEqual(JSON.parse(version.stdout), { ok: true, api_version: "2026-04-29" });
 
     const get = JSON.parse((await runCli(["config", "get", "--pretty"], { configHome })).stdout);
@@ -197,14 +213,23 @@ test("top-level transactions list maps to account transactions endpoint", async 
   });
 
   try {
-    const result = await runCli([
-      "--api-key", "sk_live_test",
-      "--base-url", server.baseURL,
-      "transactions", "list",
-      "--account-id", "acct_123",
-      "--operation", "credit",
-      "--limit", "25",
-    ], { configHome });
+    const result = await runCli(
+      [
+        "--api-key",
+        "sk_live_test",
+        "--base-url",
+        server.baseURL,
+        "transactions",
+        "list",
+        "--account-id",
+        "acct_123",
+        "--operation",
+        "credit",
+        "--limit",
+        "25",
+      ],
+      { configHome },
+    );
 
     assert.deepEqual(JSON.parse(result.stdout), { data: [], has_more: false, next_cursor: null });
     assert.equal(requests.length, 1);
@@ -224,7 +249,11 @@ test("--max-items follows cursors and aggregates list data", async () => {
     requests.push(req.url);
 
     if (req.url === "/api/invoices?limit=2") {
-      sendJSON(res, { data: [{ id: "inv_1" }, { id: "inv_2" }], has_more: true, next_cursor: "cursor_2" });
+      sendJSON(res, {
+        data: [{ id: "inv_1" }, { id: "inv_2" }],
+        has_more: true,
+        next_cursor: "cursor_2",
+      });
       return;
     }
 
@@ -237,24 +266,29 @@ test("--max-items follows cursors and aggregates list data", async () => {
   });
 
   try {
-    const result = await runCli([
-      "--api-key", "sk_live_test",
-      "--base-url", server.baseURL,
-      "invoices", "list",
-      "--max-items", "3",
-      "--limit", "2",
-      "--pretty",
-    ], { configHome });
+    const result = await runCli(
+      [
+        "--api-key",
+        "sk_live_test",
+        "--base-url",
+        server.baseURL,
+        "invoices",
+        "list",
+        "--max-items",
+        "3",
+        "--limit",
+        "2",
+        "--pretty",
+      ],
+      { configHome },
+    );
 
     assert.deepEqual(JSON.parse(result.stdout), {
       data: [{ id: "inv_1" }, { id: "inv_2" }, { id: "inv_3" }],
       has_more: true,
       next_cursor: "cursor_3",
     });
-    assert.deepEqual(requests, [
-      "/api/invoices?limit=2",
-      "/api/invoices?limit=1&cursor=cursor_2",
-    ]);
+    assert.deepEqual(requests, ["/api/invoices?limit=2", "/api/invoices?limit=1&cursor=cursor_2"]);
   } finally {
     await server.close();
     await rm(configHome, { recursive: true, force: true });
@@ -268,12 +302,10 @@ test("--quiet suppresses successful output", async () => {
   });
 
   try {
-    const result = await runCli([
-      "--api-key", "sk_live_test",
-      "--base-url", server.baseURL,
-      "--quiet",
-      "entity", "get",
-    ], { configHome });
+    const result = await runCli(
+      ["--api-key", "sk_live_test", "--base-url", server.baseURL, "--quiet", "entity", "get"],
+      { configHome },
+    );
 
     assert.equal(result.stdout, "");
     assert.equal(result.stderr, "");
@@ -288,21 +320,31 @@ test("API errors include response status and body", async () => {
   const server = await createServer((_req, res) => {
     res.setHeader("X-Request-Id", "req_123");
     res.setHeader("Zazu-Version", "2026-04-29");
-    sendJSON(res, { error: { message: "API key lacks the required scope: accounts:read", type: "insufficient_scope" } }, 403);
+    sendJSON(
+      res,
+      {
+        error: {
+          message: "API key lacks the required scope: accounts:read",
+          type: "insufficient_scope",
+        },
+      },
+      403,
+    );
   });
 
   try {
-    const result = await runCli([
-      "--api-key", "sk_live_test",
-      "--base-url", server.baseURL,
-      "accounts", "list",
-      "--pretty",
-    ], { configHome, reject: false });
+    const result = await runCli(
+      ["--api-key", "sk_live_test", "--base-url", server.baseURL, "accounts", "list", "--pretty"],
+      { configHome, reject: false },
+    );
 
     assert.equal(result.code, 1);
     assert.equal(result.stdout, "");
     assert.deepEqual(JSON.parse(result.stderr), {
-      error: { message: "API key lacks the required scope: accounts:read", type: "insufficient_scope" },
+      error: {
+        message: "API key lacks the required scope: accounts:read",
+        type: "insufficient_scope",
+      },
       status: 403,
       request_id: "req_123",
       zazu_version: "2026-04-29",
@@ -318,12 +360,19 @@ test("requests time out with a clear error", async () => {
   const server = await createServer(() => {});
 
   try {
-    const result = await runCli([
-      "--api-key", "sk_live_test",
-      "--base-url", server.baseURL,
-      "--timeout-ms", "1",
-      "entity", "get",
-    ], { configHome, reject: false });
+    const result = await runCli(
+      [
+        "--api-key",
+        "sk_live_test",
+        "--base-url",
+        server.baseURL,
+        "--timeout-ms",
+        "1",
+        "entity",
+        "get",
+      ],
+      { configHome, reject: false },
+    );
 
     assert.equal(result.code, 1);
     assert.match(result.stderr, /Request timed out after 1ms/);
@@ -346,27 +395,51 @@ test("webhook endpoint commands map to the API endpoints", async () => {
   });
 
   try {
-    await runCli([
-      "--api-key", "sk_live_test",
-      "--base-url", server.baseURL,
-      "webhook-endpoints", "create",
-      "--url", "https://example.com/webhooks/zazu",
-      "--description", "Production",
-      "--event", "payment_link.paid",
-      "--event", "transfer.executed",
-    ], { configHome });
+    await runCli(
+      [
+        "--api-key",
+        "sk_live_test",
+        "--base-url",
+        server.baseURL,
+        "webhook-endpoints",
+        "create",
+        "--url",
+        "https://example.com/webhooks/zazu",
+        "--description",
+        "Production",
+        "--event",
+        "payment_link.paid",
+        "--event",
+        "transfer.executed",
+      ],
+      { configHome },
+    );
 
-    await runCli([
-      "--api-key", "sk_live_test",
-      "--base-url", server.baseURL,
-      "webhook-endpoints", "regenerate-secret", "weh_123",
-    ], { configHome });
+    await runCli(
+      [
+        "--api-key",
+        "sk_live_test",
+        "--base-url",
+        server.baseURL,
+        "webhook-endpoints",
+        "regenerate-secret",
+        "weh_123",
+      ],
+      { configHome },
+    );
 
-    await runCli([
-      "--api-key", "sk_live_test",
-      "--base-url", server.baseURL,
-      "webhook-endpoints", "disable", "weh_123",
-    ], { configHome });
+    await runCli(
+      [
+        "--api-key",
+        "sk_live_test",
+        "--base-url",
+        server.baseURL,
+        "webhook-endpoints",
+        "disable",
+        "weh_123",
+      ],
+      { configHome },
+    );
 
     assert.deepEqual(requests, [
       {
@@ -404,12 +477,19 @@ test("webhook endpoints list supports pagination", async () => {
   });
 
   try {
-    await runCli([
-      "--api-key", "sk_live_test",
-      "--base-url", server.baseURL,
-      "webhook-endpoints", "list",
-      "--limit", "25",
-    ], { configHome });
+    await runCli(
+      [
+        "--api-key",
+        "sk_live_test",
+        "--base-url",
+        server.baseURL,
+        "webhook-endpoints",
+        "list",
+        "--limit",
+        "25",
+      ],
+      { configHome },
+    );
 
     assert.deepEqual(requests, ["/api/webhook_endpoints?limit=25"]);
   } finally {
@@ -478,8 +558,12 @@ async function runCliWithInput(args, input, { configHome, reject = true, timeout
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
     child.on("error", (error) => finish(rejectPromise, error));
     child.on("close", (code) => {
       const result = { code, stdout, stderr };
@@ -510,9 +594,10 @@ async function createServer(handler) {
 
   return {
     baseURL: `http://127.0.0.1:${port}`,
-    close: () => new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    }),
+    close: () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
   };
 }
 

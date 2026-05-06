@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { Zazu, ZazuError, type RequestOptions } from "@getzazu/sdk";
+import { type RequestOptions, Zazu, ZazuError } from "@getzazu/sdk";
 
 const CLI_VERSION = "0.1.0";
 const DEFAULT_BASE_URL = "https://zazu.ma";
@@ -28,7 +28,17 @@ const GLOBAL_FLAGS = new Set([
   "version",
 ]);
 
-const BOOLEAN_FLAGS = new Set(["all", "api-key-stdin", "debug", "help", "json", "pretty", "quiet", "version", "stdin"]);
+const BOOLEAN_FLAGS = new Set([
+  "all",
+  "api-key-stdin",
+  "debug",
+  "help",
+  "json",
+  "pretty",
+  "quiet",
+  "version",
+  "stdin",
+]);
 
 const HELP = `Zazu CLI
 
@@ -237,9 +247,18 @@ async function main() {
 
   const config = {
     apiKey: parsed.globals["api-key"] || process.env.ZAZU_API_KEY || storedConfig.api_key || "",
-    baseURL: stripTrailingSlash(parsed.globals["base-url"] || process.env.ZAZU_BASE_URL || storedConfig.base_url || DEFAULT_BASE_URL),
-    apiVersion: parsed.globals["api-version"] || process.env.ZAZU_VERSION || storedConfig.api_version || "",
-    requestTimeoutMs: parseOptionalPositiveInteger(parsed.globals["timeout-ms"] || process.env.ZAZU_TIMEOUT_MS || DEFAULT_REQUEST_TIMEOUT_MS, "timeout-ms"),
+    baseURL: stripTrailingSlash(
+      parsed.globals["base-url"] ||
+        process.env.ZAZU_BASE_URL ||
+        storedConfig.base_url ||
+        DEFAULT_BASE_URL,
+    ),
+    apiVersion:
+      parsed.globals["api-version"] || process.env.ZAZU_VERSION || storedConfig.api_version || "",
+    requestTimeoutMs: parseOptionalPositiveInteger(
+      parsed.globals["timeout-ms"] || process.env.ZAZU_TIMEOUT_MS || DEFAULT_REQUEST_TIMEOUT_MS,
+      "timeout-ms",
+    ),
     output: outputFormat(parsed.globals),
     quiet: Boolean(parsed.globals.quiet),
     debug: Boolean(parsed.globals.debug),
@@ -340,7 +359,11 @@ function accountRequest(args, flags) {
 
   switch (command) {
     case "list":
-      return listRequest("/api/accounts", pick(flags, ["status", "currency-code", "cursor", "limit"]), flags);
+      return listRequest(
+        "/api/accounts",
+        pick(flags, ["status", "currency-code", "cursor", "limit"]),
+        flags,
+      );
     case "get":
       requireValue(id, "account id");
       return { method: "GET", path: `/api/accounts/${encodeURIComponent(id)}` };
@@ -349,7 +372,7 @@ function accountRequest(args, flags) {
       return listRequest(
         `/api/accounts/${encodeURIComponent(id)}/transactions`,
         pick(flags, ["operation", "posted-after", "posted-before", "cursor", "limit"]),
-        flags
+        flags,
       );
     case "transaction":
       requireValue(id, "account id");
@@ -372,7 +395,7 @@ function transactionRequest(command, id, flags) {
       return listRequest(
         `/api/accounts/${encodeURIComponent(accountId)}/transactions`,
         pick(flags, ["operation", "posted-after", "posted-before", "cursor", "limit"]),
-        flags
+        flags,
       );
     case "get":
       requireValue(id, "transaction id");
@@ -393,10 +416,18 @@ function customerRequest(command, id, flags) {
       requireValue(id, "customer id");
       return { method: "GET", path: `/api/customers/${encodeURIComponent(id)}` };
     case "create":
-      return { method: "POST", path: "/api/customers", body: bodyFromFlags(flags, customerBody(flags)) };
+      return {
+        method: "POST",
+        path: "/api/customers",
+        body: bodyFromFlags(flags, customerBody(flags)),
+      };
     case "update":
       requireValue(id, "customer id");
-      return { method: "PATCH", path: `/api/customers/${encodeURIComponent(id)}`, body: bodyFromFlags(flags, customerBody(flags)) };
+      return {
+        method: "PATCH",
+        path: `/api/customers/${encodeURIComponent(id)}`,
+        body: bodyFromFlags(flags, customerBody(flags)),
+      };
     case "delete":
       requireValue(id, "customer id");
       return { method: "DELETE", path: `/api/customers/${encodeURIComponent(id)}` };
@@ -408,15 +439,27 @@ function customerRequest(command, id, flags) {
 function invoiceRequest(command, id, flags) {
   switch (command) {
     case "list":
-      return listRequest("/api/invoices", pick(flags, ["status", "customer-id", "cursor", "limit"]), flags);
+      return listRequest(
+        "/api/invoices",
+        pick(flags, ["status", "customer-id", "cursor", "limit"]),
+        flags,
+      );
     case "get":
       requireValue(id, "invoice id");
       return { method: "GET", path: `/api/invoices/${encodeURIComponent(id)}` };
     case "create":
-      return { method: "POST", path: "/api/invoices", body: bodyFromFlags(flags, invoiceBody(flags)) };
+      return {
+        method: "POST",
+        path: "/api/invoices",
+        body: bodyFromFlags(flags, invoiceBody(flags)),
+      };
     case "update":
       requireValue(id, "invoice id");
-      return { method: "PATCH", path: `/api/invoices/${encodeURIComponent(id)}`, body: bodyFromFlags(flags, invoiceBody(flags)) };
+      return {
+        method: "PATCH",
+        path: `/api/invoices/${encodeURIComponent(id)}`,
+        body: bodyFromFlags(flags, invoiceBody(flags)),
+      };
     case "send":
       requireValue(id, "invoice id");
       return { method: "POST", path: `/api/invoices/${encodeURIComponent(id)}/send` };
@@ -443,19 +486,29 @@ function invoiceRequest(command, id, flags) {
         body: bodyFromFlags(flags, pick(flags, ["account-id"])),
       };
     default:
-      throw new CliError("Usage: zazu invoices list|get|create|update|send|mark-as-paid|cancel|credit-note|delete|payment-link");
+      throw new CliError(
+        "Usage: zazu invoices list|get|create|update|send|mark-as-paid|cancel|credit-note|delete|payment-link",
+      );
   }
 }
 
 function paymentLinkRequest(command, id, flags) {
   switch (command) {
     case "list":
-      return listRequest("/api/payment_links", pick(flags, ["status", "link-type", "cursor", "limit"]), flags);
+      return listRequest(
+        "/api/payment_links",
+        pick(flags, ["status", "link-type", "cursor", "limit"]),
+        flags,
+      );
     case "get":
       requireValue(id, "payment link id");
       return { method: "GET", path: `/api/payment_links/${encodeURIComponent(id)}` };
     case "create":
-      return { method: "POST", path: "/api/payment_links", body: bodyFromFlags(flags, paymentLinkBody(flags)) };
+      return {
+        method: "POST",
+        path: "/api/payment_links",
+        body: bodyFromFlags(flags, paymentLinkBody(flags)),
+      };
     case "cancel":
       requireValue(id, "payment link id");
       return { method: "POST", path: `/api/payment_links/${encodeURIComponent(id)}/cancel` };
@@ -472,10 +525,18 @@ function webhookEndpointRequest(command, id, flags) {
       requireValue(id, "webhook endpoint id");
       return { method: "GET", path: `/api/webhook_endpoints/${encodeURIComponent(id)}` };
     case "create":
-      return { method: "POST", path: "/api/webhook_endpoints", body: bodyFromFlags(flags, webhookEndpointBody(flags)) };
+      return {
+        method: "POST",
+        path: "/api/webhook_endpoints",
+        body: bodyFromFlags(flags, webhookEndpointBody(flags)),
+      };
     case "update":
       requireValue(id, "webhook endpoint id");
-      return { method: "PATCH", path: `/api/webhook_endpoints/${encodeURIComponent(id)}`, body: bodyFromFlags(flags, webhookEndpointBody(flags)) };
+      return {
+        method: "PATCH",
+        path: `/api/webhook_endpoints/${encodeURIComponent(id)}`,
+        body: bodyFromFlags(flags, webhookEndpointBody(flags)),
+      };
     case "delete":
       requireValue(id, "webhook endpoint id");
       return { method: "DELETE", path: `/api/webhook_endpoints/${encodeURIComponent(id)}` };
@@ -487,7 +548,10 @@ function webhookEndpointRequest(command, id, flags) {
     case "rotate-secret":
     case "rotate_secret":
       requireValue(id, "webhook endpoint id");
-      return { method: "POST", path: `/api/webhook_endpoints/${encodeURIComponent(id)}/regenerate_secret` };
+      return {
+        method: "POST",
+        path: `/api/webhook_endpoints/${encodeURIComponent(id)}/regenerate_secret`,
+      };
     case "enable":
       requireValue(id, "webhook endpoint id");
       return { method: "POST", path: `/api/webhook_endpoints/${encodeURIComponent(id)}/enable` };
@@ -495,7 +559,9 @@ function webhookEndpointRequest(command, id, flags) {
       requireValue(id, "webhook endpoint id");
       return { method: "POST", path: `/api/webhook_endpoints/${encodeURIComponent(id)}/disable` };
     default:
-      throw new CliError("Usage: zazu webhook-endpoints list|get|create|update|delete|test|regenerate-secret|enable|disable");
+      throw new CliError(
+        "Usage: zazu webhook-endpoints list|get|create|update|delete|test|regenerate-secret|enable|disable",
+      );
   }
 }
 
@@ -684,7 +750,8 @@ async function sendPaginated(config, request) {
     }
 
     if (remaining !== undefined) {
-      const currentLimit = parseOptionalPositiveInteger(query.limit, "limit") || request.pageLimit || LIST_PAGE_SIZE;
+      const currentLimit =
+        parseOptionalPositiveInteger(query.limit, "limit") || request.pageLimit || LIST_PAGE_SIZE;
       query.limit = Math.min(currentLimit, remaining, LIST_PAGE_SIZE);
     }
 
@@ -711,12 +778,16 @@ async function sendPaginated(config, request) {
     cursor = parsed.next_cursor as string;
   }
 
-  printOutput({
-    ...(lastPayload || {}),
-    data,
-    has_more: Boolean(lastPayload?.has_more && data.length === request.maxItems),
-    next_cursor: lastPayload?.has_more && data.length === request.maxItems ? lastPayload.next_cursor : null,
-  }, config);
+  printOutput(
+    {
+      ...(lastPayload || {}),
+      data,
+      has_more: Boolean(lastPayload?.has_more && data.length === request.maxItems),
+      next_cursor:
+        lastPayload?.has_more && data.length === request.maxItems ? lastPayload.next_cursor : null,
+    },
+    config,
+  );
 }
 
 // Handle errors from any fetchRequest call uniformly: SDK errors with
@@ -745,7 +816,12 @@ let cachedClient: Zazu | null = null;
 let cachedClientKey: string | null = null;
 
 function clientFor(config): Zazu {
-  const key = [config.baseURL, config.apiKey, config.apiVersion ?? "", config.requestTimeoutMs].join("|");
+  const key = [
+    config.baseURL,
+    config.apiKey,
+    config.apiVersion ?? "",
+    config.requestTimeoutMs,
+  ].join("|");
   if (cachedClient && cachedClientKey === key) return cachedClient;
   cachedClient = new Zazu({
     apiKey: config.apiKey,
@@ -765,7 +841,8 @@ function normalizePath(value: string): string {
 async function fetchRequest(config, request) {
   const path = normalizePath(request.path);
   const resolvedBody = request.body instanceof Promise ? await request.body : request.body;
-  const hasBody = resolvedBody && typeof resolvedBody === "object" && Object.keys(resolvedBody).length > 0;
+  const hasBody =
+    resolvedBody && typeof resolvedBody === "object" && Object.keys(resolvedBody).length > 0;
 
   if (config.debug) {
     const url = buildURL(config.baseURL, request.path, request.query);
@@ -779,7 +856,10 @@ async function fetchRequest(config, request) {
 }
 
 function buildURL(baseURL, path, query = {}) {
-  const normalizedPath = path.startsWith("/api/") || path === "/api" ? path : `/api${path.startsWith("/") ? path : `/${path}`}`;
+  const normalizedPath =
+    path.startsWith("/api/") || path === "/api"
+      ? path
+      : `/api${path.startsWith("/") ? path : `/${path}`}`;
   const url = new URL(normalizedPath, `${baseURL}/`);
 
   for (const [key, value] of Object.entries(query || {})) {
@@ -849,7 +929,10 @@ function parseStringList(value, label) {
     return parsed.map((item) => String(item));
   }
 
-  return text.split(",").map((item) => item.trim()).filter(Boolean);
+  return text
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function parseMaybeJSON(value, label) {
@@ -895,7 +978,9 @@ function coerceValue(value) {
 async function readStdin({ requirePipe = false } = {}): Promise<string> {
   if (process.stdin.isTTY) {
     if (requirePipe) {
-      throw new CliError("No stdin input detected. Pipe the API key into `zazu login --api-key-stdin`.");
+      throw new CliError(
+        "No stdin input detected. Pipe the API key into `zazu login --api-key-stdin`.",
+      );
     }
 
     throw new CliError("Unable to read stdin.");
@@ -919,8 +1004,14 @@ async function readStdin({ requirePipe = false } = {}): Promise<string> {
 }
 
 async function promptSecret(label) {
-  if (!process.stdin.isTTY || !process.stdout.isTTY || typeof process.stdin.setRawMode !== "function") {
-    throw new CliError(`Cannot prompt for ${label} in a non-interactive shell. Use --api-key-stdin.`);
+  if (
+    !process.stdin.isTTY ||
+    !process.stdout.isTTY ||
+    typeof process.stdin.setRawMode !== "function"
+  ) {
+    throw new CliError(
+      `Cannot prompt for ${label} in a non-interactive shell. Use --api-key-stdin.`,
+    );
   }
 
   const stdin = process.stdin;
@@ -1046,7 +1137,10 @@ async function loginCommand(parsed, storedConfig, outputConfig) {
   }
 
   await saveStoredConfig(nextConfig);
-  printOutput({ ok: true, api_key: maskSecret(apiKey), base_url: nextConfig.base_url || DEFAULT_BASE_URL }, outputConfig);
+  printOutput(
+    { ok: true, api_key: maskSecret(apiKey), base_url: nextConfig.base_url || DEFAULT_BASE_URL },
+    outputConfig,
+  );
 }
 
 async function loginApiKey(parsed) {
@@ -1054,11 +1148,13 @@ async function loginApiKey(parsed) {
     return (await readStdin({ requirePipe: true })).trim();
   }
 
-  return parsed.globals["api-key"] ||
+  return (
+    parsed.globals["api-key"] ||
     parsed.flags["api-key"] ||
     parsed.positionals[1] ||
     process.env.ZAZU_API_KEY ||
-    await promptSecret("API key");
+    (await promptSecret("API key"))
+  );
 }
 
 async function logoutCommand(storedConfig, outputConfig) {
@@ -1078,7 +1174,10 @@ async function configCommand(command, name, value, storedConfig, outputConfig) {
       requireValue(name, "config key");
       requireValue(value, "config value");
       await setConfigValue(storedConfig, name, value);
-      printOutput({ ok: true, [publicConfigKey(name)]: displayConfigValue(name, value) }, outputConfig);
+      printOutput(
+        { ok: true, [publicConfigKey(name)]: displayConfigValue(name, value) },
+        outputConfig,
+      );
       return;
     case "unset":
       requireValue(name, "config key");
@@ -1101,7 +1200,8 @@ function readConfigValue(storedConfig, name) {
   }
 
   const key = normalizedConfigKey(name);
-  if (key === "api_key") return { api_key: storedConfig.api_key ? maskSecret(storedConfig.api_key) : null };
+  if (key === "api_key")
+    return { api_key: storedConfig.api_key ? maskSecret(storedConfig.api_key) : null };
   if (key === "base_url") return { api_base: storedConfig.base_url || DEFAULT_BASE_URL };
   if (key === "api_version") return { api_version: storedConfig.api_version || null };
 
@@ -1165,7 +1265,7 @@ function publicConfigKey(name) {
 }
 
 async function loadStoredConfig({ ignoreInvalid = false } = {}) {
-  let raw;
+  let raw: string;
   try {
     raw = await fs.readFile(storedConfigPath(), "utf8");
   } catch (error) {
