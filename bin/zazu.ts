@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { Zazu, ZazuError, type RequestOptions } from "@getzazu/sdk";
 
 const CLI_VERSION = "0.1.0";
 const DEFAULT_BASE_URL = "https://zazu.ma";
@@ -719,52 +720,79 @@ async function sendPaginated(config, request) {
   }, config);
 }
 
-async function fetchRequest(config, request) {
-  const url = buildURL(config.baseURL, request.path, request.query);
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${config.apiKey}`,
-    Accept: "application/json",
-  };
+// HTTP transport via @getzazu/sdk. The SDK's `client.request()` handles
+// auth headers, JSON serialization, AbortController-based timeouts, and
+// the 9-class error hierarchy. We translate its outputs back into the
+// `{ response, parsed }` shape that send/sendPaginated/printError expect
+// — PR #3 will swap printError to consume ZazuError directly and drop
+// this synthetic Response.
+//
+// We cache one client per (apiKey, baseURL, apiVersion, timeout) tuple
+// to avoid rebuilding the underlying fetch wrapper on every paginated
+// page fetch.
+type FetchResult = {
+  response: { ok: boolean; status: number; headers: Headers };
+  parsed: unknown;
+};
 
-  const init: RequestInit = { method: request.method, headers };
-  const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    controller.abort(new Error("Request timed out"));
-  }, config.requestTimeoutMs);
-  init.signal = controller.signal;
+let cachedClient: Zazu | null = null;
+let cachedClientKey: string | null = null;
 
+function clientFor(config): Zazu {
+  const key = [config.baseURL, config.apiKey, config.apiVersion ?? "", config.requestTimeoutMs].join("|");
+  if (cachedClient && cachedClientKey === key) return cachedClient;
+  cachedClient = new Zazu({
+    apiKey: config.apiKey,
+    baseUrl: config.baseURL,
+    apiVersion: config.apiVersion ?? undefined,
+    timeoutMs: config.requestTimeoutMs,
+  });
+  cachedClientKey = key;
+  return cachedClient;
+}
+
+function normalizePath(value: string): string {
+  if (value.startsWith("/api/") || value === "/api") return value;
+  return `/api${value.startsWith("/") ? value : `/${value}`}`;
+}
+
+async function fetchRequest(config, request): Promise<FetchResult> {
+  const path = normalizePath(request.path);
   const resolvedBody = request.body instanceof Promise ? await request.body : request.body;
-  if (resolvedBody && Object.keys(resolvedBody).length > 0) {
-    headers["Content-Type"] = "application/json";
-    init.body = JSON.stringify(resolvedBody);
-  }
-
-  if (config.apiVersion) {
-    headers["Zazu-Version"] = config.apiVersion;
-  }
+  const hasBody = resolvedBody && typeof resolvedBody === "object" && Object.keys(resolvedBody).length > 0;
 
   if (config.debug) {
-    console.error(`${init.method} ${url.toString()}`);
+    const url = buildURL(config.baseURL, request.path, request.query);
+    console.error(`${request.method} ${url.toString()}`);
   }
 
-  let response;
+  const opts: RequestOptions = { params: request.query };
+  if (hasBody) opts.body = resolvedBody;
+
+  const client = clientFor(config);
+
   try {
-    response = await fetch(url, init);
+    const sdkResponse = await client.request(request.method, path, opts);
+    return {
+      response: { ok: true, status: sdkResponse.status, headers: sdkResponse.headers },
+      parsed: sdkResponse.body,
+    };
   } catch (error) {
-    if (controller.signal.aborted) {
-      throw new CliError(`Request timed out after ${config.requestTimeoutMs}ms.`);
+    if (error instanceof ZazuError && error.status !== undefined) {
+      // Map SDK errors back to the response/parsed shape printError expects.
+      // The SDK preserves the response's Headers object on ZazuError, so
+      // printError can still pluck out x-request-id and zazu-version.
+      const headers = error.headers ?? new Headers();
+      return {
+        response: { ok: false, status: error.status, headers },
+        parsed: error.body ?? { error: { message: error.message, type: error.type, param: error.param } },
+      };
     }
-
-    throw new CliError(`Request failed: ${error.message}`);
-  } finally {
-    clearTimeout(timeout);
+    if (error instanceof ZazuError) {
+      throw new CliError(error.message);
+    }
+    throw error;
   }
-
-  const text = await response.text();
-  const contentType = response.headers.get("content-type") || "";
-  const parsed = contentType.includes("application/json") && text ? parseJSON(text, "response") : text;
-
-  return { response, parsed };
 }
 
 function buildURL(baseURL, path, query = {}) {
@@ -1196,7 +1224,7 @@ function arrayify(value) {
   return Array.isArray(value) ? value : [value];
 }
 
-function isObject(value) {
+function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
