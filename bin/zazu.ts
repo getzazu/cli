@@ -5,8 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { Page, type PageBody, type RequestOptions, Zazu, ZazuError } from "@getzazu/sdk";
+// Bun's bundler inlines JSON imports at compile time, so `bun build
+// --compile` produces a self-contained binary that already knows the
+// version — no runtime read required. Source-of-truth is package.json
+// so the release script bumping it automatically updates --version.
+import packageJson from "../package.json" with { type: "json" };
 
-const CLI_VERSION = "0.1.0";
+const CLI_VERSION = packageJson.version;
 const DEFAULT_BASE_URL = "https://zazu.ma";
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const FORMATS = new Set(["json", "pretty", "raw"]);
