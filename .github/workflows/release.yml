@@ -49,37 +49,17 @@ jobs:
         # bun test only exercises the source; this catches `bun build
         # --compile` regressions before we publish broken installs to
         # GitHub Releases / npm / Homebrew.
+        #
+        # SDK ↔ API contract drift is caught upstream: zazu-ruby
+        # records cassettes against the live staging API on every
+        # release, and zazu-ts (and therefore the cli, via its SDK
+        # dep) replays those cassettes. We don't repeat a third live
+        # check here.
         run: |
           set -euo pipefail
           bun run compile
           ./dist/zazu --version
           ./dist/zazu --help > /dev/null
-
-      - name: Smoke test against Zazu staging
-        # Run the host binary against the staging API with a known
-        # read-only key. If the CLI's request/response contract has
-        # drifted from the live API, this fails before any artifact
-        # is published.
-        env:
-          ZAZU_STAGING_URL: ${{ secrets.ZAZU_STAGING_URL }}
-          ZAZU_STAGING_API_KEY: ${{ secrets.ZAZU_STAGING_API_KEY }}
-        run: |
-          set -euo pipefail
-          if [ -z "$ZAZU_STAGING_URL" ] || [ -z "$ZAZU_STAGING_API_KEY" ]; then
-            echo "::error::ZAZU_STAGING_URL and ZAZU_STAGING_API_KEY required for release"
-            exit 1
-          fi
-          ./dist/zazu \
-            --base-url "$ZAZU_STAGING_URL" \
-            --api-key "$ZAZU_STAGING_API_KEY" \
-            --pretty \
-            entity get | tee staging-entity.json
-          jq -e '.id and .name' staging-entity.json > /dev/null || {
-            echo "::error::Unexpected response shape from /api/entity"
-            cat staging-entity.json
-            exit 1
-          }
-          echo "Staging smoke test PASS"
 
       - name: Cross-compile binaries
         run: bun run build
