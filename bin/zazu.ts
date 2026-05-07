@@ -114,6 +114,9 @@ Commands:
   zazu webhook-endpoints enable <id>
   zazu webhook-endpoints disable <id>
 
+  zazu checkout-sessions create [--data json|--file path|--stdin] [--account-id id] [--amount amount] [--currency-code value] [--success-url url] [--cancel-url url] [--description text] [--customer-email email] [--metadata json]
+  zazu checkout-sessions get <id>
+
   zazu request <method> <path> [--data json|--file path|--stdin] [--query key=value]
 `;
 
@@ -125,6 +128,12 @@ Usage:
   zazu accounts get <id>
   zazu accounts transactions <account-id> [--operation value] [--posted-after time] [--posted-before time] [--limit n] [--cursor value] [--all|--max-items n]
   zazu accounts transaction <account-id> <transaction-id>
+`,
+  "checkout-sessions": `Zazu CLI - checkout-sessions
+
+Usage:
+  zazu checkout-sessions create [--data json|--file path|--stdin] [--account-id id] [--amount amount] [--currency-code value] [--success-url url] [--cancel-url url] [--description text] [--customer-email email] [--metadata json]
+  zazu checkout-sessions get <id>
 `,
   config: `Zazu CLI - config
 
@@ -352,6 +361,9 @@ function buildRequest(positionals, flags) {
     case "webhook-endpoints":
     case "webhook_endpoints":
       return webhookEndpointRequest(command, arg, flags);
+    case "checkout-sessions":
+    case "checkout_sessions":
+      return checkoutSessionRequest(command, arg, flags);
     case "request":
       return rawRequest(positionals.slice(1), flags);
     default:
@@ -570,6 +582,22 @@ function webhookEndpointRequest(command, id, flags) {
   }
 }
 
+function checkoutSessionRequest(command, id, flags) {
+  switch (command) {
+    case "get":
+      requireValue(id, "checkout session id");
+      return { method: "GET", path: `/api/checkout_sessions/${encodeURIComponent(id)}` };
+    case "create":
+      return {
+        method: "POST",
+        path: "/api/checkout_sessions",
+        body: bodyFromFlags(flags, checkoutSessionBody(flags)),
+      };
+    default:
+      throw new CliError("Usage: zazu checkout-sessions create|get");
+  }
+}
+
 function listRequest(pathValue, query, flags) {
   const maxItems = parseOptionalPositiveInteger(flags["max-items"], "max-items");
   const all = Boolean(flags.all) || maxItems !== undefined;
@@ -668,6 +696,24 @@ function webhookEndpointBody(flags) {
     body.events = arrayify(flags.event).map((event) => String(event));
   } else if (flags.events !== undefined) {
     body.events = parseStringList(flags.events, "events");
+  }
+
+  return body;
+}
+
+function checkoutSessionBody(flags) {
+  const body = pick(flags, [
+    "account-id",
+    "amount",
+    "currency-code",
+    "success-url",
+    "cancel-url",
+    "description",
+    "customer-email",
+  ]);
+
+  if (flags.metadata !== undefined) {
+    body.metadata = parseJSON(flags.metadata, "metadata");
   }
 
   return body;
