@@ -183,6 +183,14 @@ zazu webhook-endpoints create \
   --event transfer.executed
 zazu webhook-endpoints test 01964a3b-7c8d-7000-8000-deadbeef1234
 zazu webhook-endpoints regenerate-secret 01964a3b-7c8d-7000-8000-deadbeef1234
+
+zazu checkout-sessions create \
+  --account-id 01964a3b-0000-7000-8000-ac6000000a01 \
+  --amount 100.00 \
+  --success-url "https://example.com/ok?session_id={CHECKOUT_SESSION_ID}" \
+  --cancel-url https://example.com/cancel \
+  --customer-email buyer@example.com
+zazu checkout-sessions get cs_20OoDQ3U1LlTHdIHh5rEJynM
 ```
 
 List endpoints use cursor pagination. Fetch one page:
@@ -260,6 +268,9 @@ zazu webhook-endpoints test <id>
 zazu webhook-endpoints regenerate-secret <id>
 zazu webhook-endpoints enable <id>
 zazu webhook-endpoints disable <id>
+
+zazu checkout-sessions create [--data json|--file path|--stdin] [--account-id id] [--amount amount] [--success-url url] [--cancel-url url] [--description text] [--customer-email email] [--metadata json]
+zazu checkout-sessions get <id>
 
 zazu request <method> <path> [--data json|--file path|--stdin] [--query key=value]
 ```

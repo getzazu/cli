@@ -498,6 +498,84 @@ test("webhook endpoints list supports pagination", async () => {
   }
 });
 
+test("checkout session commands map to the API endpoints", async () => {
+  const configHome = await tempConfigHome();
+  const requests = [];
+  const server = await createServer(async (req, res) => {
+    requests.push({
+      method: req.method,
+      url: req.url,
+      body: await readRequestBody(req),
+    });
+    sendJSON(res, { ok: true });
+  });
+
+  try {
+    await runCli(
+      [
+        "--api-key",
+        "sk_live_test",
+        "--base-url",
+        server.baseURL,
+        "checkout-sessions",
+        "create",
+        "--account-id",
+        "acc_123",
+        "--amount",
+        "100.00",
+        "--success-url",
+        "https://example.com/ok?session_id={CHECKOUT_SESSION_ID}",
+        "--cancel-url",
+        "https://example.com/cancel",
+        "--description",
+        "Order #1",
+        "--customer-email",
+        "buyer@example.com",
+        "--metadata",
+        '{"order_id":"ORD-1"}',
+      ],
+      { configHome },
+    );
+
+    await runCli(
+      [
+        "--api-key",
+        "sk_live_test",
+        "--base-url",
+        server.baseURL,
+        "checkout-sessions",
+        "get",
+        "cs_123",
+      ],
+      { configHome },
+    );
+
+    assert.deepEqual(requests, [
+      {
+        method: "POST",
+        url: "/api/checkout_sessions",
+        body: JSON.stringify({
+          account_id: "acc_123",
+          amount: "100.00",
+          success_url: "https://example.com/ok?session_id={CHECKOUT_SESSION_ID}",
+          cancel_url: "https://example.com/cancel",
+          description: "Order #1",
+          customer_email: "buyer@example.com",
+          metadata: { order_id: "ORD-1" },
+        }),
+      },
+      {
+        method: "GET",
+        url: "/api/checkout_sessions/cs_123",
+        body: "",
+      },
+    ]);
+  } finally {
+    await server.close();
+    await rm(configHome, { recursive: true, force: true });
+  }
+});
+
 async function runCli(args, { configHome, reject = true } = {}) {
   const env = {
     ...process.env,
