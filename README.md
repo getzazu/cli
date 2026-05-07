@@ -269,7 +269,7 @@ zazu webhook-endpoints regenerate-secret <id>
 zazu webhook-endpoints enable <id>
 zazu webhook-endpoints disable <id>
 
-zazu checkout-sessions create [--data json|--file path|--stdin] [--account-id id] [--amount amount] [--success-url url] [--cancel-url url] [--description text] [--customer-email email] [--metadata json]
+zazu checkout-sessions create [--data json|--file path|--stdin] [--account-id id] [--amount amount] [--currency-code value] [--success-url url] [--cancel-url url] [--description text] [--customer-email email] [--metadata json]
 zazu checkout-sessions get <id>
 
 zazu request <method> <path> [--data json|--file path|--stdin] [--query key=value]
