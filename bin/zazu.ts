@@ -104,6 +104,12 @@ Commands:
   zazu payment-links create [--data json|--file path|--stdin] [payment link flags]
   zazu payment-links cancel <id>
 
+  zazu transfers create [--data json|--file path|--stdin] [transfer flags]
+  zazu transfers get <id>
+
+  zazu beneficiaries list [--limit n] [--cursor value] [--all|--max-items n]
+  zazu beneficiaries get <id>
+
   zazu webhook-endpoints list [--limit n] [--cursor value] [--all|--max-items n]
   zazu webhook-endpoints get <id>
   zazu webhook-endpoints create [--data json|--file path|--stdin] [--url url] [--description text] [--event value]
@@ -189,6 +195,24 @@ Usage:
   zazu payment-links get <id>
   zazu payment-links create [--data json|--file path|--stdin] [--account-id id] [--amount amount] [--description text] [--payment-reference ref]
   zazu payment-links cancel <id>
+`,
+  transfers: `Zazu CLI - transfers
+
+Creating a transfer routes it into your workspace's in-app approval flow —
+the API never executes a transfer itself. Poll \`get\` (requested →
+processing → completed/failed) or use the transfer.executed webhook.
+
+Usage:
+  zazu transfers create [--data json|--file path|--stdin] [--account-id id] [--beneficiary-id id|--destination-account-id id] [--amount amount] [--payment-reference ref] [--external-account-id id] [--currency-code code] [--internal-notes text]
+  zazu transfers get <id>
+`,
+  beneficiaries: `Zazu CLI - beneficiaries
+
+Read-only directory of saved transfer recipients (managed in the dashboard).
+
+Usage:
+  zazu beneficiaries list [--limit n] [--cursor value] [--all|--max-items n]
+  zazu beneficiaries get <id>
 `,
   request: `Zazu CLI - request
 
@@ -358,6 +382,12 @@ function buildRequest(positionals, flags) {
     case "payment-links":
     case "payment_links":
       return paymentLinkRequest(command, arg, flags);
+    case "transfers":
+    case "transfer-drafts":
+    case "transfer_drafts":
+      return transferDraftRequest(command, arg, flags);
+    case "beneficiaries":
+      return beneficiaryRequest(command, arg, flags);
     case "webhook-endpoints":
     case "webhook_endpoints":
       return webhookEndpointRequest(command, arg, flags);
@@ -534,6 +564,34 @@ function paymentLinkRequest(command, id, flags) {
   }
 }
 
+function transferDraftRequest(command, id, flags) {
+  switch (command) {
+    case "create":
+      return {
+        method: "POST",
+        path: "/api/transfer_drafts",
+        body: bodyFromFlags(flags, transferDraftBody(flags)),
+      };
+    case "get":
+      requireValue(id, "transfer draft id");
+      return { method: "GET", path: `/api/transfer_drafts/${encodeURIComponent(id)}` };
+    default:
+      throw new CliError("Usage: zazu transfers create|get");
+  }
+}
+
+function beneficiaryRequest(command, id, flags) {
+  switch (command) {
+    case "list":
+      return listRequest("/api/beneficiaries", pick(flags, ["cursor", "limit"]), flags);
+    case "get":
+      requireValue(id, "beneficiary id");
+      return { method: "GET", path: `/api/beneficiaries/${encodeURIComponent(id)}` };
+    default:
+      throw new CliError("Usage: zazu beneficiaries list|get");
+  }
+}
+
 function webhookEndpointRequest(command, id, flags) {
   switch (command) {
     case "list":
@@ -682,6 +740,19 @@ function paymentLinkBody(flags) {
     "link-type",
     "redirect-url",
     "max-payments",
+  ]);
+}
+
+function transferDraftBody(flags) {
+  return pick(flags, [
+    "account-id",
+    "beneficiary-id",
+    "external-account-id",
+    "destination-account-id",
+    "amount",
+    "currency-code",
+    "payment-reference",
+    "internal-notes",
   ]);
 }
 
