@@ -382,6 +382,92 @@ test("requests time out with a clear error", async () => {
   }
 });
 
+test("transfer and beneficiary commands map to the API endpoints", async () => {
+  const configHome = await tempConfigHome();
+  const requests = [];
+  const server = await createServer(async (req, res) => {
+    requests.push({
+      method: req.method,
+      url: req.url,
+      body: await readRequestBody(req),
+    });
+    sendJSON(res, { ok: true });
+  });
+
+  try {
+    await runCli(
+      [
+        "--api-key",
+        "sk_live_test",
+        "--base-url",
+        server.baseURL,
+        "transfers",
+        "create",
+        "--account-id",
+        "acc_123",
+        "--beneficiary-id",
+        "ben_123",
+        "--amount",
+        "150.00",
+        "--payment-reference",
+        "INV-001",
+      ],
+      { configHome },
+    );
+
+    await runCli(
+      ["--api-key", "sk_live_test", "--base-url", server.baseURL, "transfers", "get", "td_123"],
+      { configHome },
+    );
+
+    await runCli(
+      [
+        "--api-key",
+        "sk_live_test",
+        "--base-url",
+        server.baseURL,
+        "beneficiaries",
+        "list",
+        "--limit",
+        "5",
+      ],
+      { configHome },
+    );
+
+    await runCli(
+      [
+        "--api-key",
+        "sk_live_test",
+        "--base-url",
+        server.baseURL,
+        "beneficiaries",
+        "get",
+        "ben_123",
+      ],
+      { configHome },
+    );
+
+    assert.deepEqual(requests, [
+      {
+        method: "POST",
+        url: "/api/transfer_drafts",
+        body: JSON.stringify({
+          account_id: "acc_123",
+          beneficiary_id: "ben_123",
+          amount: "150.00",
+          payment_reference: "INV-001",
+        }),
+      },
+      { method: "GET", url: "/api/transfer_drafts/td_123", body: "" },
+      { method: "GET", url: "/api/beneficiaries?limit=5", body: "" },
+      { method: "GET", url: "/api/beneficiaries/ben_123", body: "" },
+    ]);
+  } finally {
+    await server.close();
+    await rm(configHome, { recursive: true, force: true });
+  }
+});
+
 test("webhook endpoint commands map to the API endpoints", async () => {
   const configHome = await tempConfigHome();
   const requests = [];
